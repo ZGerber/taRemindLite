@@ -104,6 +104,6 @@ dmypy.json
 .pyre/
 .pytype/
 cython_debug/
-database/old_meetings.db
-test.py
+
+meetings.db
 start_script.sh
