@@ -14,34 +14,46 @@ SMTP_PORT = 465
 SENDER: str = os.environ.get("TA_REMIND_EMAIL")
 PASSWORD: str = os.environ.get("GMAIL_PASSWORD")
 
-# Database instance
-db = SQLiteDatabase("/home/zane/software/taRemindLite/meetings.db")
+MEETING_LOCATIONS = ['zoom', 'discord', 'office']
+PREPOSITIONS = {'zoom': 'over',
+                'discord': 'on',
+                'office': 'in'}
 
 
 class EmailReminder:
+    """Class for sending email reminders for meetings."""
+
     def __init__(self, meeting_id: int):
         self.meeting_id = meeting_id
 
     def get_meeting_details(self) -> dict:
         """Fetch meeting details as a dictionary."""
+        meeting_link = self._get_property("zoom_link")
+        meeting_location = "zoom"
+        for m in MEETING_LOCATIONS:
+            if m in meeting_link:
+                meeting_location = m
         return {
-            "name": db.get_property("Meetings", self.meeting_id, "meeting_name"),
-            "day": db.get_property("Meetings", self.meeting_id, "day_of_week"),
-            "time": db.get_property("Meetings", self.meeting_id, "time"),
-            "zoom_link": db.get_property("Meetings", self.meeting_id, "zoom_link"),
-            "zoom_id": db.get_property("Meetings", self.meeting_id, "zoom_meeting_id"),
-            "passcode": db.get_property("Meetings", self.meeting_id, "zoom_passcode"),
+            "name": self._get_property("meeting_name"),
+            "day": self._get_property("day_of_week"),
+            "time": self._get_property("time"),
+            "zoom_link": self._get_property("zoom_link"),
+            "zoom_id": self._get_property("zoom_meeting_id"),
+            "passcode": self._get_property("zoom_passcode"),
+            'preposition': PREPOSITIONS[meeting_location],
+            "location": meeting_location.capitalize(),
         }
+
+    def _get_property(self, property_name: str) -> str:
+        """Helper function to get a specific property for the meeting."""
+        return SQLiteDatabase("meetings.db").get_property("Meetings", self.meeting_id, property_name)
 
     @staticmethod
     def get_day_of_week(meeting_day: str) -> str:
         """Determine the weekday description for the email body."""
-        if meeting_day == datetime.now().strftime('%A'):
-            return "today"
-        elif meeting_day == (datetime.now() + timedelta(1)).strftime('%A'):
-            return "tomorrow"
-        else:
-            return meeting_day
+        today = datetime.now().strftime('%A')
+        tomorrow = (datetime.now() + timedelta(1)).strftime('%A')
+        return "today" if meeting_day == today else "tomorrow" if meeting_day == tomorrow else meeting_day
 
     def recipients(self) -> List[str]:
         """Fetch email addresses of participants."""
@@ -50,7 +62,7 @@ class EmailReminder:
         FROM Participants
         JOIN Contacts ON Participants.contact_id = Contacts.id
         WHERE Participants.meeting_id = ?;'''
-        results = db.query(sql, (self.meeting_id,))
+        results = SQLiteDatabase("meetings.db").read(sql, (self.meeting_id,))
         return [row[0] for row in results]
 
     def email_subject(self) -> str:
@@ -60,16 +72,23 @@ class EmailReminder:
     def email_body(self) -> str:
         """Construct email body."""
         details = self.get_meeting_details()
-        return f"""
-        Hi everyone,
+        if details['location'] == 'Zoom':
+            return f"""Hi everyone,
+    
+This is a reminder that the {details['name']} is {self.get_day_of_week(details['day'])} at {details['time']} MST {details['preposition']} {details['location']}.
 
-        This is a reminder that the {details['name']} is {self.get_day_of_week(details['day'])} at {details['time']} MST over Zoom.
+{details['zoom_link']}
 
-        {details['zoom_link']}
+Meeting ID: {details['zoom_id']}
+Passcode: {details['passcode']}
+"""
+        elif details['location'] == 'Discord':
+            return f"""Hi everyone,
+    
+This is a reminder that the {details['name']} is {self.get_day_of_week(details['day'])} at {details['time']} MST {details['preposition']} {details['location']}.
 
-        Meeting ID: {details['zoom_id']}
-        Passcode: {details['passcode']}
-        """
+{details['zoom_link']}
+"""
 
     def create_email(self) -> str:
         """Create the email message."""
