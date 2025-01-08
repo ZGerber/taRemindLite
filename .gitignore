@@ -1,0 +1,4 @@
+.idea/
+/meetings.db
+/start_script.sh
+__pycache__/
